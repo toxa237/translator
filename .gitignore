@@ -1,0 +1,9 @@
+notebooks_examples/
+models/
+configuration/config.json
+__pycache__/
+.git/
+.venv/
+.venvtf/
+.ipynb_checkpoints/
+.vimspector.session
