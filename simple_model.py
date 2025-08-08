@@ -13,52 +13,55 @@ def create_text_vectorization(vocab):
     return indices
 
 
-
-def create_encoder_model(vocab_leigth) -> models.Model:
+def create_encoder_model(vocab_leigth, num_heads, key_dim) -> models.Model:
     input_layer = layers.Input(shape=(800,), name='input_phrase')
 
-    X = layers.Embedding(input_dim=vocab_leigth+2, output_dim=128, name='embeding')(input_layer)
+    X = layers.Embedding(input_dim=vocab_leigth+2, output_dim=256, name='embeding')(input_layer)
+    X = castom_layers.PositionalEncoding(max_len=800, d_model=256)(X)
 
     masking_layer = castom_layers.PadMask()(input_layer)
     
     attention_output = layers.MultiHeadAttention(
-        num_heads=8, key_dim=128
+        num_heads=num_heads, key_dim=4*key_dim
         )(
             X, X, X,
             attention_mask=masking_layer
         )
     X = layers.LayerNormalization()(attention_output + X)
 
-    X_ffn = layers.Dense(128, activation='relu')(X)
+    X_ffn = layers.Dense(key_dim, activation='relu')(X)
     X = layers.LayerNormalization()(X + X_ffn)
-    X_ffn = layers.Dense(128)(X)
+    X = layers.Dense(key_dim, activation='relu')(X)
+    X = layers.Dense(key_dim, activation='relu')(X)
     model = models.Model(inputs=input_layer, outputs=X, name='encoder_model')
     return model
 
 
-def crate_decoder_model(vocab_leigth) -> models.Model:
-    input_embeding = layers.Input(shape=(800, 128), name='embeding')
+def crate_decoder_model(vocab_leigth, num_heads=4, key_dim=256) -> models.Model:
+    input_embeding = layers.Input(shape=(800, key_dim), name='embeding')
     input_decoder = layers.Input(shape=(800,), name='decoder_input')
 
-    emb_decoder = layers.Embedding(input_dim=vocab_leigth+2, output_dim=128, name='emb_decoder')(input_decoder)
+    emb_decoder = layers.Embedding(input_dim=vocab_leigth+2, output_dim=key_dim, name='emb_decoder')(input_decoder)
+    emb_decoder = castom_layers.PositionalEncoding(max_len=800, d_model=key_dim)(emb_decoder)
     
     attention_mask = castom_layers.DecoderMask()(input_decoder)
 
     X = layers.MultiHeadAttention(
-        num_heads=8, key_dim=128
+        num_heads=num_heads, key_dim=4*key_dim
         )(emb_decoder, emb_decoder, emb_decoder, attention_mask=attention_mask)
 
     out_1 = layers.LayerNormalization()(X + emb_decoder)
 
     X = layers.MultiHeadAttention(
-        num_heads=8, key_dim=128
+        num_heads=num_heads, key_dim=4*key_dim
         )(out_1, input_embeding, input_embeding)
     out_2 = layers.LayerNormalization()(out_1 + X)
 
-    X = layers.Dense(128, activation='relu')(out_2)
+    X = layers.Dense(key_dim, activation='relu')(out_2)
     output_layer = layers.LayerNormalization()(out_2 + X)
-
-    output_layer = layers.Dense(vocab_leigth+2)(output_layer)
+    output_layer = layers.Dense(key_dim, activation='relu')(output_layer)
+    output_layer = layers.Dense(128, activation='relu')(output_layer)
+    output_layer = layers.Dense(vocab_leigth + 2)(output_layer)
     
     model = models.Model(inputs=[input_embeding, input_decoder], outputs=output_layer)
     return model
@@ -120,17 +123,17 @@ class TranslationModel(models.Model):
     def predict_with_decode(self, input_data):
         input_data = self.predict(input_data)
         token_ids = tf.argmax(input_data, axis=-1)
-        vocab = self.embeding_model.get_layer(name='text_vectorise').get_vocabulary()
+        vocab = self.text_vector.get_vocabulary()
         decoded_texts = []
         for row in token_ids:
-            chars = [vocab[i] for i in row if vocab[i] not in ['<PAD>', '<START>', '<END>']]
+            chars = [vocab[i] for i in row if vocab[i] not in ['<PAD>', '<END>']]
             decoded_texts.append("".join(chars))
 
         return decoded_texts
 
 
 if __name__ == "__main__":
-    data_generator = TranslationDataGenerator(batch_size=16,
+    data_generator = TranslationDataGenerator(batch_size=32,
                                               laungage_couples=[('en', 'pt')])
     vocab = vocab_creator(data_generator.unique_language_list)
 
@@ -157,6 +160,6 @@ if __name__ == "__main__":
                 )
             ]
     
-    translation_model.fit(data_generator, epochs=5, callbacks=callback)
+    translation_model.fit(data_generator, epochs=20, callbacks=callback)
     translation_model.save('models/translation_model_final.keras')
 

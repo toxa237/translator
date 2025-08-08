@@ -1,4 +1,4 @@
-notebooks_examples/
+notebooks/
 models/
 configuration/config.json
 __pycache__/
