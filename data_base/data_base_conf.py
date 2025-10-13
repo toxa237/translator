@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, Integer, VARCHAR, TEXT, ForeignKey
+from sqlalchemy import Column, Integer, VARCHAR, TEXT, ForeignKey, Boolean
 import json
 
 
@@ -44,6 +44,7 @@ class TrainDataset(Base):
     output_language = Column(VARCHAR(2), nullable=False)
     input_phrase_id = Column(Integer, nullable=False)
     output_phrase_id = Column(VARCHAR(200), nullable=False)
+    validation = Column(Boolean, nullable=False, default=False)
 
 
 if __name__ == "__main__":

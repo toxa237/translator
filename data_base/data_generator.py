@@ -3,18 +3,21 @@ import json
 from sqlalchemy import create_engine, select, or_, and_, func
 from sqlalchemy.orm import Session
 from keras.utils import PyDataset
-from typing import Union, List, Tuple
+from typing import Callable, Union, List, Tuple
+from tensorflow.python.training.saving.saveable_object_util import set_cpu0
 from data_base.data_base_conf import EnglishPhrase, PortuguesePhrase, FrenchPhrase,\
     BelarusianPhrase, SpanishPhrase, ItalianPhrase, RussianPhrase, TrainDataset
+from tokenizers import Tokenizer
 
 
 class TranslationDataGenerator(PyDataset):
-    def __init__(self, batch_size = 32,
-                 laungage_couples: Union[str, List[Tuple[str, str]]] = 'all', **kwargs):
+    def __init__(self, laungage_couples: Union[str, List[Tuple[str, str]]] = 'all',
+                 batch_size = 32, split='train', tokenisers: Callable|None=None, **kwargs):
         super().__init__(**kwargs)
         self.batch_size = batch_size
         self._engine = self._create_engene()
-        self._language_couples = self._create_laungage_couples(laungage_couples)
+        self._language_couples = self._create_laungage_couples(laungage_couples, split)
+        self.tokenisers = tokenisers
         self._language_classes = {
             'en': EnglishPhrase,
             'pt': PortuguesePhrase,
@@ -62,22 +65,32 @@ class TranslationDataGenerator(PyDataset):
                 output_phrases_dict[lang] = {p.id: p.phrase.lower() for p in phrases}
 
         input_phrase = [input_phrases_dict[i.input_language][i.input_phrase_id] for i in result]
-        
-        output_phrases = []
-        
+
+        output_phrase = []
         for out_ps, ot_l in zip(output_phrase_ids, out_lang):
-            output_phrases.append(
+            output_phrase.append(
                 set([output_phrases_dict[ot_l][pid] for pid in out_ps])
             )
-        output_phrases = ['<START>' + 'NEXT'.join(phrases) + '<END>' for phrases in output_phrases]
+        output_phrase = ['[START]' + '[NEXT]'.join(phrases) + '[END]' for phrases in output_phrase]
 
+        if self.tokenisers:
+            input_phrase = self.tokenisers(inp_lang, input_phrase)
+            output_phrase = self.tokenisers(out_lang, output_phrase)
+            input_phrase = tf.constant(input_phrase, dtype=tf.string)
+            output_phrase = tf.constant(output_phrase, dtype=tf.string)
+        else:
+            input_phrase = tf.constant(input_phrase, dtype=tf.int32)
+            output_phrase = tf.constant(output_phrase, dtype=tf.int32)
+
+        inp_lang = tf.constant(inp_lang, dtype=tf.string)
+        out_lang = tf.constant(out_lang, dtype=tf.string)
+        
         return {
-            # "inp_lang": inp_lang,
-            # "out_lang": out_lang,
-            "input_phrase":  tf.constant(input_phrase, dtype=tf.string),
-            "decoder_input": tf.constant(output_phrases, dtype=tf.string)
-            }
-
+                "inp_lang": inp_lang,
+                "out_lang": out_lang,
+                "input_phrase": input_phrase, 
+                "output_phrase": output_phrase
+               }
     
     def _create_engene(self):
         with open("configuration/config.json", "r") as f:
@@ -90,10 +103,10 @@ class TranslationDataGenerator(PyDataset):
     
     def _create_laungage_couples(
             self, 
-            language_couples: Union[str, List[Tuple[str, str]]]
+            language_couples: Union[str, List[Tuple[str, str]]],
+            split
         ) -> or_:  # type: ignore
         self.unique_language_list = list(set([j for i in language_couples for j in i]))
-
 
         connection = self._engine.connect()
         posible_couples = select(TrainDataset.input_language,
@@ -113,9 +126,13 @@ class TranslationDataGenerator(PyDataset):
                 TrainDataset.input_language == lang1,
                 TrainDataset.output_language == lang2
             ))
-        return or_(*filters)
+        split = True if split=='train' else False
+        return and_(or_(*filters), TrainDataset.validation == split)
+    
 
 if __name__ == "__main__":
-    for i in [2, 16, 32, 64]:
-        q = TranslationDataGenerator(batch_size=i, laungage_couples=[('en', 'pt')])
-        print(len(q))
+    q = TranslationDataGenerator(batch_size=2, laungage_couples=[('en', 'pt')])
+    print(q[0])
+    q = TranslationDataGenerator(batch_size=2, laungage_couples=[('en', 'pt')], split='test')
+    print(q[0])
+

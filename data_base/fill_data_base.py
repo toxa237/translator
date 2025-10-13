@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import tensorflow_datasets as tfds
 from sqlalchemy import create_engine, select, insert
 import json
@@ -54,12 +55,15 @@ def bulk_get_or_create(phrases_in: pd.Series, language_class, connection):
     return phrases_in['id']
 
 
+validation_split = 0.2
+
+
 for dataset_name in list_of_datasets:
-    print(f'Processing dataset: {dataset_name}')
-    dataset = tfds.load(f'ted_hrlr_translate/{dataset_name}', split='train')
-    df = tfds.as_dataframe(dataset)
-    df = df.map(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
-    df.to_sql(dataset_name, sql_engine, if_exists='replace', index=False)
+    # print(f'Processing dataset: {dataset_name}')
+    # dataset = tfds.load(f'ted_hrlr_translate/{dataset_name}', split='train')
+    # df = tfds.as_dataframe(dataset)
+    # df = df.map(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
+    # df.to_sql(dataset_name, sql_engine, if_exists='replace', index=False)
 
     df = pd.read_sql(dataset_name, sql_engine)
     columns = df.columns
@@ -77,7 +81,10 @@ for dataset_name in list_of_datasets:
         df_grouped.columns = ['input_phrase_id', 'output_phrase_id']
         df_grouped['input_language'] = df.columns[src]
         df_grouped['output_language'] = df.columns[tgt]
+        df_grouped['validation'] = np.random.rand(df_grouped.shape[0]) > validation_split
         df_grouped.to_sql(TrainDataset.__tablename__, con=sql_engine,
                           if_exists='append', index=False)
         print(f'Inserted {len(df_grouped)} records for {df.columns[src]} to {df.columns[tgt]}')
+
+
 

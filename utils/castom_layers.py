@@ -1,11 +1,13 @@
+import os
 import tensorflow as tf
 from keras.layers import Layer, Embedding
 from keras import ops
+from tokenizers import Tokenizer
 
 
 class PadMask(Layer):
-    def __init__(self, pad_index=0):
-        super().__init__()
+    def __init__(self, pad_index=0, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.pad_index = pad_index
     
     def build(self, input_shape):  # type: ignore
@@ -27,7 +29,7 @@ class PadMask(Layer):
 
 class DecoderMask(Layer):
     def __init__(self, *args, **kwargs):
-        super().__init__()
+        super().__init__(*args, **kwargs)
         self.pad_mask = PadMask()
 
     def build(self, input_shape):
@@ -52,7 +54,7 @@ class DecoderMask(Layer):
 
 class PositionalEncoding(Layer):
     def __init__(self, max_len, d_model, *args, **kwargs):
-        super().__init__()
+        super().__init__(*args, **kwargs)
         self.conf = {'max_len': max_len, 'd_model': d_model}
         self.pos_emb = Embedding(input_dim=max_len, output_dim=d_model)
 
@@ -68,3 +70,17 @@ class PositionalEncoding(Layer):
     @classmethod
     def from_config(cls, confige):
         return cls(**confige)
+
+
+class TokeniserLayer(Layer):
+    def __init__(self, lang:str, *args, pash:str = '', **kwargs):
+        self.lang = lang
+        print(os.path.join(pash, f'{lang}.json'))
+        self.tokeniser = Tokenizer.from_file(os.path.join(pash, f'{lang}.json'))
+
+    def call(self, phrases):
+       return tf.map_fn(phrases, self._prase_proces)
+
+    def _prase_proces(self, phrases):
+       return self.tokeniser.encode(phrases).ids
+
