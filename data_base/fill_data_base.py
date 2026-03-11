@@ -1,7 +1,6 @@
 import pandas as pd
-import numpy as np
 import tensorflow_datasets as tfds
-from sqlalchemy import create_engine, select, insert
+from sqlalchemy import create_engine, select
 import json
 from data_base.data_base_conf import EnglishPhrase, PortuguesePhrase, \
     FrenchPhrase, BelarusianPhrase, SpanishPhrase, ItalianPhrase, RussianPhrase, TrainDataset
@@ -19,14 +18,23 @@ language_codes = {
 list_of_datasets = ['pt_to_en', 'be_to_en', 'es_to_pt', 'fr_to_pt', 'it_to_pt',
                     'ru_to_en']
 with open("configuration/config.json", "r") as f:
-        db_patam = json.load(f)["db"]
-        sql_engine = create_engine(
-            f"{db_patam['server']}://{db_patam['user']}:{db_patam['password']}"
-            f"@{db_patam['host']}:{db_patam['port']}/{db_patam['data_base']}"
-        )
+    db_patam = json.load(f)["db"]
+    sql_engine = create_engine(
+        f"{db_patam['server']}://{db_patam['user']}:{db_patam['password']}"
+        f"@{db_patam['host']}:{db_patam['port']}/{db_patam['data_base']}"
+    )
 
 
-def bulk_get_or_create(phrases_in: pd.Series, language_class, connection):
+def tf_dataset_to_sql(dataset_name, split):
+    print(f'Processing dataset: {dataset_name}/{split}')
+    dataset = tfds.load(f'ted_hrlr_translate/{dataset_name}', split=split)
+    df = tfds.as_dataframe(dataset)
+    df = df.map(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
+    df["validation"] = 1 if split=="train" else 0
+    df.to_sql(dataset_name, sql_engine, if_exists='append', index=False)
+
+
+def bulk_get_or_create(phrases_in, language_class, connection):
     phrases = phrases_in.dropna().astype(str).unique()
     phrases_in.name = 'phrase'
     
@@ -55,18 +63,14 @@ def bulk_get_or_create(phrases_in: pd.Series, language_class, connection):
     return phrases_in['id']
 
 
-validation_split = 0.2
+for dataset_name in list_of_datasets:
+    tf_dataset_to_sql(dataset_name, "train")
+    tf_dataset_to_sql(dataset_name, "test")
 
 
 for dataset_name in list_of_datasets:
-    # print(f'Processing dataset: {dataset_name}')
-    # dataset = tfds.load(f'ted_hrlr_translate/{dataset_name}', split='train')
-    # df = tfds.as_dataframe(dataset)
-    # df = df.map(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
-    # df.to_sql(dataset_name, sql_engine, if_exists='replace', index=False)
-
-    df = pd.read_sql(dataset_name, sql_engine)
-    columns = df.columns
+    df: pd.DataFrame = pd.read_sql(dataset_name, sql_engine)
+    columns = df.columns[:-1]
     connection = sql_engine.connect()
 
     for col in columns:
@@ -74,14 +78,14 @@ for dataset_name in list_of_datasets:
     connection.close()
 
     for src, tgt in [(0, 1), (1, 0)]:
-        df_grouped = df.groupby(f'{df.columns[src]}_id')[f'{df.columns[tgt]}_id'].agg(
-            lambda x: '|'.join(map(str, set(x)))
-            )
+        df_grouped = df.groupby([f'{df.columns[src]}_id'])[[f'{df.columns[tgt]}_id', "validation"]].agg({
+            f'{df.columns[tgt]}_id': lambda x: '|'.join(map(str, set(x))),
+            "validation": "first"
+        })
         df_grouped = df_grouped.reset_index()
-        df_grouped.columns = ['input_phrase_id', 'output_phrase_id']
+        df_grouped.columns = ['input_phrase_id', 'output_phrase_id', 'validation']
         df_grouped['input_language'] = df.columns[src]
         df_grouped['output_language'] = df.columns[tgt]
-        df_grouped['validation'] = np.random.rand(df_grouped.shape[0]) > validation_split
         df_grouped.to_sql(TrainDataset.__tablename__, con=sql_engine,
                           if_exists='append', index=False)
         print(f'Inserted {len(df_grouped)} records for {df.columns[src]} to {df.columns[tgt]}')

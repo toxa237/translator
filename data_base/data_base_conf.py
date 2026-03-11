@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import Column, Integer, VARCHAR, TEXT, ForeignKey, Boolean
+from sqlalchemy.orm import DeclarativeBase  # type: ignore
+from sqlalchemy import Column, Integer, VARCHAR, TEXT, Boolean
 import json
 
 
@@ -13,7 +13,6 @@ class Base_Phrase_Model(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     phrase = Column(TEXT, nullable=True)
-
 
 class EnglishPhrase(Base_Phrase_Model):
     __tablename__ = 'english_phrases'
@@ -35,6 +34,7 @@ class ItalianPhrase(Base_Phrase_Model):
 
 class RussianPhrase(Base_Phrase_Model):
     __tablename__ = 'russian_phrases'
+
 
 class TrainDataset(Base):
     __tablename__ = 'train_dataset'

@@ -1,8 +1,6 @@
-import os
-import tensorflow as tf
-from keras.layers import Layer, Embedding
 from keras import ops
-from tokenizers import Tokenizer
+from keras.layers import Embedding, Layer
+import tensorflow as tf
 
 
 class PadMask(Layer):
@@ -65,22 +63,17 @@ class PositionalEncoding(Layer):
         return x + positions
     
     def get_config(self):
-        return self.conf
+        config = super().get_config()
+        config.update({
+            "max_len": self.max_len,
+            "d_model": self.d_model,
+        })
+        return config
 
     @classmethod
     def from_config(cls, confige):
         return cls(**confige)
 
 
-class TokeniserLayer(Layer):
-    def __init__(self, lang:str, *args, pash:str = '', **kwargs):
-        self.lang = lang
-        print(os.path.join(pash, f'{lang}.json'))
-        self.tokeniser = Tokenizer.from_file(os.path.join(pash, f'{lang}.json'))
 
-    def call(self, phrases):
-       return tf.map_fn(phrases, self._prase_proces)
-
-    def _prase_proces(self, phrases):
-       return self.tokeniser.encode(phrases).ids
 

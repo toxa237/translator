@@ -6,5 +6,3 @@ __pycache__/
 .venv/
 .venvtf/
 .ipynb_checkpoints/
-.vimspector.session
-tokenisers/

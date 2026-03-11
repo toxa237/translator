@@ -3,21 +3,23 @@ import json
 from sqlalchemy import create_engine, select, or_, and_, func
 from sqlalchemy.orm import Session
 from keras.utils import PyDataset
-from typing import Callable, Union, List, Tuple
-from tensorflow.python.training.saving.saveable_object_util import set_cpu0
+from typing import Union, List, Tuple
+
 from data_base.data_base_conf import EnglishPhrase, PortuguesePhrase, FrenchPhrase,\
     BelarusianPhrase, SpanishPhrase, ItalianPhrase, RussianPhrase, TrainDataset
-from tokenizers import Tokenizer
 
 
 class TranslationDataGenerator(PyDataset):
     def __init__(self, laungage_couples: Union[str, List[Tuple[str, str]]] = 'all',
-                 batch_size = 32, split='train', tokenisers: Callable|None=None, **kwargs):
+                 batch_size = 32, split='train', post_proces = None, **kwargs):
+        """
+        split = 'test' or 'train' data set
+        """
         super().__init__(**kwargs)
         self.batch_size = batch_size
         self._engine = self._create_engene()
+        self.post_proces = post_proces
         self._language_couples = self._create_laungage_couples(laungage_couples, split)
-        self.tokenisers = tokenisers
         self._language_classes = {
             'en': EnglishPhrase,
             'pt': PortuguesePhrase,
@@ -36,10 +38,10 @@ class TranslationDataGenerator(PyDataset):
         return result // self.batch_size  # type: ignore
     
     def __getitem__(self, index):
-        query = select(TrainDataset).where(self._language_couples).offset(
+        query = select(TrainDataset).where(self._language_couples).offset(  # type: ignore
             index * self.batch_size).limit(self.batch_size)
         
-        with Session(self._engine) as session:
+        with Session(self._engine) as session: # type: ignore
             result: list[TrainDataset] = session.scalars(query).all()  # type: ignore
 
             inp_lang = [i.input_language for i in result]
@@ -67,30 +69,30 @@ class TranslationDataGenerator(PyDataset):
         input_phrase = [input_phrases_dict[i.input_language][i.input_phrase_id] for i in result]
 
         output_phrase = []
-        for out_ps, ot_l in zip(output_phrase_ids, out_lang):
+        for out_ps, out_l in zip(output_phrase_ids, out_lang):
             output_phrase.append(
-                set([output_phrases_dict[ot_l][pid] for pid in out_ps])
+                set([output_phrases_dict[out_l][pid] for pid in out_ps])
             )
-        output_phrase = ['[START]' + '[NEXT]'.join(phrases) + '[END]' for phrases in output_phrase]
-
-        if self.tokenisers:
-            input_phrase = self.tokenisers(inp_lang, input_phrase)
-            output_phrase = self.tokenisers(out_lang, output_phrase)
-            input_phrase = tf.constant(input_phrase, dtype=tf.string)
-            output_phrase = tf.constant(output_phrase, dtype=tf.string)
-        else:
-            input_phrase = tf.constant(input_phrase, dtype=tf.int32)
-            output_phrase = tf.constant(output_phrase, dtype=tf.int32)
-
-        inp_lang = tf.constant(inp_lang, dtype=tf.string)
-        out_lang = tf.constant(out_lang, dtype=tf.string)
+        output_phrase = ['[START]' + '[NEXT]'.join(phrases) + '[STOP]' for phrases in output_phrase]
         
-        return {
+        output = {
                 "inp_lang": inp_lang,
                 "out_lang": out_lang,
                 "input_phrase": input_phrase, 
                 "output_phrase": output_phrase
                }
+        out_type = tf.string
+
+        if self.post_proces:
+            output, out_type = self.post_proces(output)
+        
+        output = {
+            # "inp_lang": tf.constant(output["inp_lang"], dtype=tf.string),
+            # "out_lang": tf.constant(output["out_lang"], dtype=tf.string),
+            "input_phrase": tf.constant(output["input_phrase"], dtype=out_type), 
+            "output_phrase": tf.constant(output["output_phrase"], dtype=out_type)
+        }
+        return output
     
     def _create_engene(self):
         with open("configuration/config.json", "r") as f:
@@ -109,8 +111,8 @@ class TranslationDataGenerator(PyDataset):
         self.unique_language_list = list(set([j for i in language_couples for j in i]))
 
         connection = self._engine.connect()
-        posible_couples = select(TrainDataset.input_language,
-                                 TrainDataset.output_language).distinct()
+        posible_couples = select(TrainDataset.input_language, # type: ignore
+                                 TrainDataset.output_language).distinct() # type: ignore
         posible_couples = connection.execute(posible_couples).fetchall()
         connection.close()
 
