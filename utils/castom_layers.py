@@ -1,5 +1,5 @@
 from keras import ops
-from keras.layers import Embedding, Layer
+from keras.layers import Embedding, Layer, serialize, deserialize
 import tensorflow as tf
 
 
@@ -51,10 +51,12 @@ class DecoderMask(Layer):
 
 
 class PositionalEncoding(Layer):
-    def __init__(self, max_len, d_model, *args, **kwargs):
+    def __init__(self, max_len=None, d_model=None, pos_emb=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.conf = {'max_len': max_len, 'd_model': d_model}
-        self.pos_emb = Embedding(input_dim=max_len, output_dim=d_model)
+        if isinstance(pos_emb, Embedding):
+            self.pos_emb = pos_emb
+        else:
+            self.pos_emb = Embedding(input_dim=max_len, output_dim=d_model)
 
     def call(self, x):
         seq_len = tf.shape(x)[1] # type: ignore
@@ -65,14 +67,16 @@ class PositionalEncoding(Layer):
     def get_config(self):
         config = super().get_config()
         config.update({
-            "max_len": self.max_len,
-            "d_model": self.d_model,
+            "pos_emb": serialize(self.pos_emb)
         })
         return config
 
     @classmethod
-    def from_config(cls, confige):
-        return cls(**confige)
+    def from_config(cls, config):
+        pos_emb = config.get("pos_emb", None)
+        if pos_emb:
+            config["pos_emb"] = deserialize(config["pos_emb"])
+        return cls(**config)
 
 
 
